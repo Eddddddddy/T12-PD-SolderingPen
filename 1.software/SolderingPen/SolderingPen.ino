@@ -58,12 +58,10 @@
 #include <EEPROM.h>             // for storing user settings into EEPROM
 #include <avr/sleep.h>          // for sleeping during ADC sampling
 
-#include "Button2.h"
-
 #include "LIS2DW12Sensor.h"
 
 // Firmware version
-#define VERSION       "v1.8"
+#define VERSION       "v1.1"
 
 // Type of MOSFET
 #define P_MOSFET                // P_MOSFET or N_MOSFET
@@ -73,7 +71,7 @@
 typedef u8g2_uint_t u8g_uint_t;
 
 // Type of rotary encoder
-#define ROTARY_TYPE   1         // 0: 2 increments/step; 1: 4 increments/step (default)
+#define ROTARY_TYPE   0         // 0: 2 increments/step; 1: 4 increments/step (default)
 
 // Pins
 #define SENSOR_PIN    A0        // tip temperature sense
@@ -103,9 +101,10 @@ typedef u8g2_uint_t u8g_uint_t;
 #define TIPNAME       "BC1.5"   // default tip name
 
 // Default timer values (0 = disabled)
-#define TIME2SLEEP     5        // time to enter sleep mode in minutes
-#define TIME2OFF      15        // time to shut off heater in minutes
+#define TIME2SLEEP    30        // time to enter sleep mode in minutes
+#define TIME2OFF       5        // time to shut off heater in minutes
 #define TIMEOFBOOST   40        // time to stay in boost mode in seconds
+#define LISTHRESHOLD  15        // LIS sensor threshold
 
 // Control values
 #define TIME2SETTLE   950       // time in microseconds to allow OpAmp output to settle
@@ -135,15 +134,16 @@ double aggKp = 11, aggKi = 0.5, aggKd = 1;
 double consKp = 11, consKi = 3, consKd = 5;
 
 // Default values that can be changed by the user and stored in the EEPROM
-uint16_t  DefaultTemp = TEMP_DEFAULT;
-uint16_t  SleepTemp   = TEMP_SLEEP;
-uint8_t   BoostTemp   = TEMP_BOOST;
-uint8_t   time2sleep  = TIME2SLEEP;
-uint8_t   time2off    = TIME2OFF;
-uint8_t   timeOfBoost = TIMEOFBOOST;
-uint8_t   MainScrType = MAINSCREEN;
-bool      PIDenable   = PID_ENABLE;
-bool      beepEnable  = BEEP_ENABLE;
+uint16_t  DefaultTemp   = TEMP_DEFAULT;
+uint16_t  SleepTemp     = TEMP_SLEEP;
+uint8_t   BoostTemp     = TEMP_BOOST;
+uint8_t   time2sleep    = TIME2SLEEP;
+uint8_t   time2off      = TIME2OFF;
+uint8_t   timeOfBoost   = TIMEOFBOOST;
+uint8_t   MainScrType   = MAINSCREEN;
+bool      PIDenable     = PID_ENABLE;
+bool      beepEnable    = BEEP_ENABLE;
+uint8_t   LISthreshold  = LISTHRESHOLD;
 
 // Default values for tips
 uint16_t  CalTemp[TIPMAX][4] = {TEMP200, TEMP280, TEMP360, TEMPCHP};
@@ -163,21 +163,22 @@ const char *TempItems[]        = { "Temp Settings", "Default Temp", "Sleep Temp"
                                    "Boost Temp", "Return"
                                  };
 const char *TimerItems[]       = { "Timer Settings", "Sleep Timer", "Off Timer",
-                                   "Boost Timer", "Return"
+                                   "Boost Timer", "IMU Threshold", "Return"
                                  };
-const char *ControlTypeItems[] = { "Control Type", "Direct", "PID" };
-const char *MainScreenItems[]  = { "Main Screen", "Big Numbers", "More Infos" };
-const char *StoreItems[]       = { "Store Settings ?", "No", "Yes" };
-const char *SureItems[]        = { "Are you sure ?", "No", "Yes" };
-const char *BuzzerItems[]      = { "Buzzer", "Disable", "Enable" };
-const char *DefaultTempItems[] = { "Default Temp", "deg C" };
-const char *SleepTempItems[]   = { "Sleep Temp", "deg C" };
-const char *BoostTempItems[]   = { "Boost Temp", "deg C" };
-const char *SleepTimerItems[]  = { "Sleep Timer", "Minutes" };
-const char *OffTimerItems[]    = { "Off Timer", "Minutes" };
-const char *BoostTimerItems[]  = { "Boost Timer", "Seconds" };
-const char *DeleteMessage[]    = { "Warning", "You cannot", "delete your", "last tip!" };
-const char *MaxTipMessage[]    = { "Warning", "You reached", "maximum number", "of tips!" };
+const char *ControlTypeItems[]  = { "Control Type", "Direct", "PID" };
+const char *MainScreenItems[]   = { "Main Screen", "Big Numbers", "More Infos" };
+const char *StoreItems[]        = { "Store Settings ?", "No", "Yes" };
+const char *SureItems[]         = { "Are you sure ?", "No", "Yes" };
+const char *BuzzerItems[]       = { "Buzzer", "Disable", "Enable" };
+const char *DefaultTempItems[]  = { "Default Temp", "deg C" };
+const char *SleepTempItems[]    = { "Sleep Temp", "deg C" };
+const char *BoostTempItems[]    = { "Boost Temp", "deg C" };
+const char *SleepTimerItems[]   = { "Sleep Timer", "Seconds" };
+const char *LISthresholdItems[] = { "IMU Threshold", "mg" };
+const char *OffTimerItems[]     = { "Off Timer", "Minutes" };
+const char *BoostTimerItems[]   = { "Boost Timer", "Seconds" };
+const char *DeleteMessage[]     = { "Warning", "You cannot", "delete your", "last tip!" };
+const char *MaxTipMessage[]     = { "Warning", "You reached", "maximum number", "of tips!" };
 
 // Variables for pin change interrupt
 volatile uint8_t  a0, b0, c0, d0;
@@ -226,10 +227,6 @@ U8G2_SH1107_64X128_1_HW_I2C u8g(U8G2_R1);
 // Buffer for drawStr
 char F_Buffer[20];
 
-// Button2 Configure
-Button2 Button_P = Button2(BUTTON_P_PIN);
-Button2 Button_N = Button2(BUTTON_N_PIN);
-
 // LIS2DW12Sensor
 LIS2DW12Sensor Accelero(&Wire, LIS2DW12_I2C_ADD_L);
 LIS2DW12_Event_Status_t state;
@@ -259,14 +256,13 @@ void setup() {
   // PCICR  = bit (PCIE0);                 // Enable pin change interrupt
   // PCIFR  = bit (PCIF0);                 // Clear interrupt flag
 
-  // setup Button2
-  Button_N.setPressedHandler(Pressed_N);
-  Button_P.setPressedHandler(Pressed_P);
-
   // setup LIS
   Wire.begin();
   Accelero.begin();
   Accelero.Enable_X();
+  Accelero.WriteReg(LIS2DW12_CTRL6, 0x0C);
+  Accelero.WriteReg(LIS2DW12_CTRL1, 0x77);
+  Accelero.Set_FIFO_Mode(LIS2DW12_STREAM_MODE);
 
   // prepare and start OLED
   u8g.begin();
@@ -295,7 +291,9 @@ void setup() {
   ctrl.SetMode(AUTOMATIC);
 
   // set initial rotary encoder values
-  a0 = PINB & 1; b0 = PIND >> 7 & 1; ab0 = (a0 == b0);
+  //a0 = PINB & 1; b0 = PIND >> 7 & 1; ab0 = (a0 == b0);
+  a0 = 0;
+  b0 = 0;
   setRotary(TEMP_MIN, TEMP_MAX, TEMP_STEP, DefaultTemp);
 
   // reset sleep timer
@@ -365,12 +363,12 @@ void SLEEPCheck() {
   }
 
   // check time passed since the handle was moved
-  goneMinutes = (millis() - sleepmillis) / 60000;
-  if ( (!inSleepMode) && (time2sleep > 0) && (goneMinutes >= time2sleep) ) {
+  goneSeconds = (millis() - sleepmillis) / 1000;
+  if ( (!inSleepMode) && (time2sleep > 0) && (goneSeconds >= time2sleep) ) {
     inSleepMode = true;
     beep();
   }
-  if ( (!inOffMode)   && (time2off   > 0) && (goneMinutes >= time2off  ) ) {
+  if ( (!inOffMode)   && (time2off   > 0) && ((goneSeconds / 60) >= time2off  ) ) {
     inOffMode   = true;
     beep();
   }
@@ -379,16 +377,19 @@ void SLEEPCheck() {
 
 // reads temperature, vibration switch and supply voltages
 void SENSORCheck() {
+  for (int i = 0; i < 32; i++) {
+    int32_t accelerometer[3];
+    Accelero.Get_X_Axes(accelerometer);
+    if (abs(accelerometer[1]) > LISthreshold) {
+      handleMoved = true;  // set flag if handle was moved
+      break;
+    }
+  }
   analogWrite(CONTROL_PIN, HEATER_OFF);       // shut off heater in order to measure temperature
   delayMicroseconds(TIME2SETTLE);             // wait for voltage to settle
 
   double temp = denoiseAnalog(SENSOR_PIN);    // read ADC value for temperature
-  uint8_t d = digitalRead(SWITCH_PIN);        // check handle vibration switch
-  if (d > 0) {
-    handleMoved = true;  // set flag if handle was moved
-  } else if (d = 0) {
-    handleMoved = false;
-  }
+
   if (! SensorCounter--) Vin = getVIN();      // get Vin every now and then
 
   analogWrite(CONTROL_PIN, HEATER_PWM);       // turn on again heater
@@ -500,9 +501,11 @@ void getEEPROM() {
     beepEnable  =  EEPROM.read(12);
     CurrentTip  =  EEPROM.read(13);
     NumberOfTips = EEPROM.read(14);
+    LISthreshold = EEPROM.read(15);
+    
 
     uint8_t i, j;
-    uint16_t counter = 15;
+    uint16_t counter = 16;
     for (i = 0; i < NumberOfTips; i++) {
       for (j = 0; j < TIPNAMELENGTH; j++) {
         TipName[i][j] = EEPROM.read(counter++);
@@ -535,9 +538,10 @@ void updateEEPROM() {
   EEPROM.update(12, beepEnable);
   EEPROM.update(13, CurrentTip);
   EEPROM.update(14, NumberOfTips);
+  EEPROM.update(15, LISthreshold);
 
   uint8_t i, j;
-  uint16_t counter = 15;
+  uint16_t counter = 16;
   for (i = 0; i < NumberOfTips; i++) {
     for (j = 0; j < TIPNAMELENGTH; j++) EEPROM.update(counter++, TipName[i][j]);
     for (j = 0; j < 4; j++) {
@@ -558,6 +562,10 @@ void MainScreen() {
     u8g.drawStr( 0, 0,  "SET:");
     u8g.setCursor(40, 0);
     u8g.print(Setpoint, 0);
+    //    int32_t accelerometer[3];
+    //    Accelero.Get_X_Axes(accelerometer);
+    //    u8g.setCursor(0, 0);
+    //    u8g.print(accelerometer[0], DEC);
 
     // draw status of heater
     u8g.setCursor(83, 0);
@@ -573,7 +581,8 @@ void MainScreen() {
     if (MainScrType) {
       // draw current tip and input voltage
       float fVin = (float)Vin / 1000;     // convert mv in V
-      u8g.setCursor( 0, 52); u8g.print(TipName[CurrentTip]);
+      float fTmp = getLISTemp();
+      u8g.setCursor( 0, 52); u8g.print(fTmp, 1); u8g.print(F("C"));
       u8g.setCursor(83, 52); u8g.print(fVin, 1); u8g.print(F("V"));
       // draw current temperature
       u8g.setFont(u8g2_font_freedoomr25_tn);
@@ -663,12 +672,14 @@ void TimerScreen() {
   while (repeat) {
     selection = MenuScreen(TimerItems, sizeof(TimerItems), selection);
     switch (selection) {
-      case 0:   setRotary(0, 30, 1, time2sleep);
+      case 0:   setRotary(0, 600, 10, time2sleep);
         time2sleep = InputScreen(SleepTimerItems); break;
       case 1:   setRotary(0, 60, 5, time2off);
         time2off = InputScreen(OffTimerItems); break;
       case 2:   setRotary(0, 180, 10, timeOfBoost);
         timeOfBoost = InputScreen(BoostTimerItems); break;
+      case 3:   setRotary(0, 50, 1, LISthreshold);
+        LISthreshold = InputScreen(LISthresholdItems); break;
       default:  repeat = false; break;
     }
   }
@@ -772,14 +783,16 @@ void InfoScreen() {
     Vin = getVIN();                     // read supply voltage
     float fVin = (float)Vin / 1000;     // convert mv in V
     float fTmp = getChipTemp();         // read cold junction temperature
+    int32_t accelerometer[3];
+    Accelero.Get_X_Axes(accelerometer);
     u8g.firstPage();
     do {
       u8g.setFont(u8g2_font_9x15_tf);
       u8g.setFontPosTop();
-      u8g.setCursor(0,  0); u8g.print(F("Firmware: ")); u8g.print(VERSION);
-      u8g.setCursor(0, 16); u8g.print(F("Tmp: "));  u8g.print(fTmp, 1); u8g.print(F(" C"));
-      u8g.setCursor(0, 32); u8g.print(F("Vin: "));  u8g.print(fVin, 1); u8g.print(F(" V"));
-      u8g.setCursor(0, 48); u8g.print(F("Vcc:  ")); u8g.print(fVcc, 1); u8g.print(F(" V"));
+      u8g.setCursor(0,  0); u8g.print(F("Tmp: "));  u8g.print(fTmp, 1); u8g.print(F(" C"));
+      u8g.setCursor(0, 16); u8g.print(F("Vin: "));  u8g.print(fVin, 1); u8g.print(F(" V"));
+      u8g.setCursor(0, 32); u8g.print(F("Vcc:  ")); u8g.print(fVcc, 1); u8g.print(F(" V"));
+      u8g.setCursor(0, 48); u8g.print(F("IMU:  ")); u8g.print(accelerometer[1], DEC); u8g.print(F(""));
     } while (u8g.nextPage());
     if (lastbutton && digitalRead(BUTTON_PIN)) {
       delay(10);
@@ -983,6 +996,17 @@ double getChipTemp() {
 }
 
 
+// get LIS temperature
+float getLISTemp() {
+  uint8_t a, b;
+  uint32_t i = 0;
+  Accelero.ReadReg(0x0D, &a);
+  Accelero.ReadReg(0x0E, &b);
+  i = b;
+  return (float)((i << 4) | (a >> 4)) / 16.0 + 25.0;      // calculate LIS temperature in degrees C
+}
+
+
 // get input voltage in mV by reading 1.1V reference against AVcc
 uint16_t getVCC() {
   uint16_t result = 0;
@@ -1033,16 +1057,33 @@ EMPTY_INTERRUPT (ADC_vect);             // nothing to be done here
 //   }
 // }
 
-// Button2 handler
-void Pressed_N(Button2& btn) {
-  count = constrain(count - countStep, countMin, countMax);
-}
-
-void Pressed_P(Button2& btn) {
-  count = constrain(count + countStep, countMin, countMax);
-}
+// // Button2 handler
+// void Pressed_N(Button2& btn) {
+//   count = constrain(count - countStep, countMin, countMax);
+// }
+//
+// void Pressed_P(Button2& btn) {
+//   count = constrain(count + countStep, countMin, countMax);
+// }
 
 void Button_loop() {
-  Button_N.loop();
-  Button_P.loop();
+  if (!digitalRead(BUTTON_N_PIN) && a0 == 1) {
+    delay(10);
+    if (!digitalRead(BUTTON_N_PIN)) {
+      count = constrain(count - countStep, countMin, countMax);
+      a0 = 0;
+    }
+  } else if (digitalRead(BUTTON_N_PIN)) {
+    a0 = 1;
+  }
+
+  if (!digitalRead(BUTTON_P_PIN) && b0 == 1) {
+    delay(10);
+    if (!digitalRead(BUTTON_P_PIN)) {
+      count = constrain(count + countStep, countMin, countMax);
+      b0 = 0;
+    }
+  } else if (digitalRead(BUTTON_P_PIN)) {
+    b0 = 1;
+  }
 }
