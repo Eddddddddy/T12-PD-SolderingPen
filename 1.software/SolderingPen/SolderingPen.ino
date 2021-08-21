@@ -61,7 +61,7 @@
 #include "LIS2DW12Sensor.h"
 
 // Firmware version
-#define VERSION       "v1.1"
+#define VERSION       "v1.2"
 
 // Type of MOSFET
 #define P_MOSFET                // P_MOSFET or N_MOSFET
@@ -260,8 +260,8 @@ void setup() {
   Wire.begin();
   Accelero.begin();
   Accelero.Enable_X();
-  Accelero.WriteReg(LIS2DW12_CTRL6, 0x0C);
-  Accelero.WriteReg(LIS2DW12_CTRL1, 0x77);
+  Accelero.WriteReg(LIS2DW12_CTRL6, 0x04);
+  Accelero.WriteReg(LIS2DW12_CTRL1, 0x17);
   Accelero.Set_FIFO_Mode(LIS2DW12_STREAM_MODE);
 
   // prepare and start OLED
@@ -377,12 +377,23 @@ void SLEEPCheck() {
 
 // reads temperature, vibration switch and supply voltages
 void SENSORCheck() {
-  for (int i = 0; i < 32; i++) {
-    int32_t accelerometer[3];
-    Accelero.Get_X_Axes(accelerometer);
-    if (abs(accelerometer[1]) > LISthreshold) {
-      handleMoved = true;  // set flag if handle was moved
-      break;
+  uint16_t sampleNum = 0;
+  Accelero.Get_FIFO_Num_Samples(&sampleNum);
+  if (sampleNum == 32) {
+    int16_t accelerometer[3][32];
+    for (int i = 0; i < 32; i++) {
+      int32_t accelerometer_temp[3];
+      Accelero.Get_X_Axes(accelerometer_temp);
+      accelerometer[0][i] = accelerometer_temp[0];
+      accelerometer[1][i] = accelerometer_temp[1];
+      accelerometer[2][i] = accelerometer_temp[2];
+    }
+    if(variance(accelerometer[0])>LISthreshold){
+      handleMoved = true;
+    }else if(variance(accelerometer[1])>LISthreshold){
+      handleMoved = true;
+    }else if(variance(accelerometer[2])>LISthreshold){
+      handleMoved = true;
     }
   }
   analogWrite(CONTROL_PIN, HEATER_OFF);       // shut off heater in order to measure temperature
@@ -502,7 +513,7 @@ void getEEPROM() {
     CurrentTip  =  EEPROM.read(13);
     NumberOfTips = EEPROM.read(14);
     LISthreshold = EEPROM.read(15);
-    
+
 
     uint8_t i, j;
     uint16_t counter = 16;
@@ -1031,6 +1042,20 @@ uint16_t getVIN() {
   long result;
   result = denoiseAnalog (VIN_PIN);     // read supply voltage via voltage divider
   return (result * Vcc / 179.474);      // 179.474 = 1023 * R13 / (R12 + R13)
+}
+
+int32_t variance(int16_t a[])
+{
+  // Compute mean (average of elements)
+  int32_t sum = 0;
+
+  for (int i = 0; i < 32; i++) sum += a[i];
+  int16_t mean = (int32_t)sum / 32;
+  // Compute sum squared differences with mean.
+  int32_t sqDiff = 0;
+  for (int i = 0; i < 32; i++)
+    sqDiff += (a[i] - mean) * (a[i] - mean);
+  return (int32_t)sqDiff / 32;
 }
 
 
