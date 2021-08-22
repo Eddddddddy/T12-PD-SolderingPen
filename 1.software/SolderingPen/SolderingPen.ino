@@ -1,14 +1,14 @@
-// SolderingStation2
+// SolderingPen
 //
-// ATmega328-controlled Soldering Station for Hakko T12 Tips.
+// ATmega328-controlled Soldering Pen for Hakko T12 Tips.
 //
 // This version of the code implements:
 // - Temperature measurement of the tip
 // - Direct or PID control of the heater
-// - Temperature control via rotary encoder
-// - Boost mode by short pressing rotary encoder switch
-// - Setup menu by long pressing rotary encoder switch
-// - Handle movement detection (by checking ball switch)
+// - Temperature control via buttons
+// - Boost mode by short pressing first button
+// - Setup menu by long pressing first button
+// - Handle movement detection by gyroscope
 // - Iron unconnected detection (by idenfying invalid temperature readings)
 // - Time driven sleep/power off mode if iron is unused (movement detection)
 // - Measurement of input voltage, Vcc and ATmega's internal temperature
@@ -19,8 +19,8 @@
 // - Tip change detection
 // - Can be used with either N or P channel mosfets
 //
-// Power supply should be in the range of 16V/2A to 24V/3A and well
-// stabilized.
+// Power supply should be in the range of 6V to 20V. PD, QC and other 
+// rapid-charging protocols.
 //
 // For calibration you need a soldering iron tips thermometer. For best results
 // wait at least three minutes after switching on the soldering station before
@@ -36,15 +36,12 @@
 // - John Glavinos, https://youtu.be/4YDcWfOQmz4
 // - createskyblue, https://github.com/createskyblue
 // - TaaraLabs, https://github.com/TaaraLabs
-//
-// 2019 - 2021 by Stefan Wagner
-// Project Files (EasyEDA): https://easyeda.com/wagiminator
-// Project Files (Github):  https://github.com/wagiminator
-// License: http://creativecommons.org/licenses/by-sa/3.0/
+// - wagiminator, https://github.com/wagiminator
+
 
 
 // Libraries
-#include <U8g2lib.h>             // https://github.com/olikraus/u8glib
+#include <U8g2lib.h>             // https://github.com/olikraus/u8g2
 
 #ifdef U8X8_HAVE_HW_SPI
 #include <SPI.h>
@@ -72,6 +69,7 @@ typedef u8g2_uint_t u8g_uint_t;
 
 // Type of rotary encoder
 #define ROTARY_TYPE   0         // 0: 2 increments/step; 1: 4 increments/step (default)
+#define BUTTON_DELAY  5
 
 // Pins
 #define SENSOR_PIN    A0        // tip temperature sense
@@ -1093,7 +1091,7 @@ EMPTY_INTERRUPT (ADC_vect);             // nothing to be done here
 
 void Button_loop() {
   if (!digitalRead(BUTTON_N_PIN) && a0 == 1) {
-    delay(10);
+    delay(BUTTON_DELAY);
     if (!digitalRead(BUTTON_N_PIN)) {
       count = constrain(count - countStep, countMin, countMax);
       a0 = 0;
@@ -1103,7 +1101,7 @@ void Button_loop() {
   }
 
   if (!digitalRead(BUTTON_P_PIN) && b0 == 1) {
-    delay(10);
+    delay(BUTTON_DELAY);
     if (!digitalRead(BUTTON_P_PIN)) {
       count = constrain(count + countStep, countMin, countMax);
       b0 = 0;
