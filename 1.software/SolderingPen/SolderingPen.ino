@@ -19,7 +19,7 @@
 // - Tip change detection
 // - Can be used with either N or P channel mosfets
 //
-// Power supply should be in the range of 6V to 20V. PD, QC and other 
+// Power supply should be in the range of 6V to 20V. PD, QC and other
 // rapid-charging protocols.
 //
 // For calibration you need a soldering iron tips thermometer. For best results
@@ -58,7 +58,7 @@
 #include "LIS2DW12Sensor.h"
 
 // Firmware version
-#define VERSION       "v1.2"
+#define VERSION       "v1.3"
 
 // Type of MOSFET
 #define P_MOSFET                // P_MOSFET or N_MOSFET
@@ -109,7 +109,7 @@ typedef u8g2_uint_t u8g_uint_t;
 #define SMOOTHIE      0.05      // OpAmp output smooth factor (1=no smoothing; 0.05 default)
 #define PID_ENABLE    false     // enable PID control
 #define BEEP_ENABLE   true      // enable/disable buzzer
-#define MAINSCREEN    0         // type of main screen (0: big numbers; 1: more infos)
+#define MAINSCREEN    1         // type of main screen (0: big numbers; 1: more infos)
 
 // EEPROM identifier
 #define EEPROM_IDENT  0xE76C   // to identify if EEPROM was written by this program
@@ -217,7 +217,7 @@ U8GLIB_SSD1306_128X64 u8g(U8G_I2C_OPT_DEV_0 | U8G_I2C_OPT_NO_ACK | U8G_I2C_OPT_F
 #elif defined (SH1106)
 U8GLIB_SH1106_128X64 u8g(U8G_I2C_OPT_FAST | U8G_I2C_OPT_NO_ACK);
 #elif defined (SH1107)
-U8G2_SH1107_64X128_1_HW_I2C u8g(U8G2_R1);
+U8G2_SH1107_64X128_1_HW_I2C u8g(U8G2_R1, A3);
 #else
 #error Wrong OLED controller type!
 #endif
@@ -228,6 +228,9 @@ char F_Buffer[20];
 // LIS2DW12Sensor
 LIS2DW12Sensor Accelero(&Wire, LIS2DW12_I2C_ADD_L);
 LIS2DW12_Event_Status_t state;
+float lastLISTmp = 0;
+float newLISTmp = 0;
+uint8_t LISTmpTime = 0;
 
 
 void setup() {
@@ -261,6 +264,7 @@ void setup() {
   Accelero.WriteReg(LIS2DW12_CTRL6, 0x04);
   Accelero.WriteReg(LIS2DW12_CTRL1, 0x17);
   Accelero.Set_FIFO_Mode(LIS2DW12_STREAM_MODE);
+  lastLISTmp = getLISTemp();
 
   // prepare and start OLED
   u8g.begin();
@@ -386,11 +390,11 @@ void SENSORCheck() {
       accelerometer[1][i] = accelerometer_temp[1];
       accelerometer[2][i] = accelerometer_temp[2];
     }
-    if(variance(accelerometer[0])>LISthreshold){
+    if (variance(accelerometer[0]) > LISthreshold) {
       handleMoved = true;
-    }else if(variance(accelerometer[1])>LISthreshold){
+    } else if (variance(accelerometer[1]) > LISthreshold) {
       handleMoved = true;
-    }else if(variance(accelerometer[2])>LISthreshold){
+    } else if (variance(accelerometer[2]) > LISthreshold) {
       handleMoved = true;
     }
   }
@@ -590,8 +594,14 @@ void MainScreen() {
     if (MainScrType) {
       // draw current tip and input voltage
       float fVin = (float)Vin / 1000;     // convert mv in V
-      float fTmp = getLISTemp();
-      u8g.setCursor( 0, 52); u8g.print(fTmp, 1); u8g.print(F("C"));
+      newLISTmp = newLISTmp + 0.01 * getLISTemp();
+      LISTmpTime++;
+      if (LISTmpTime >= 100) {
+        lastLISTmp = newLISTmp;
+        newLISTmp = 0;
+        LISTmpTime = 0;
+      }
+      u8g.setCursor( 0, 52); u8g.print(lastLISTmp, 1); u8g.print(F("C"));
       u8g.setCursor(83, 52); u8g.print(fVin, 1); u8g.print(F("V"));
       // draw current temperature
       u8g.setFont(u8g2_font_freedoomr25_tn);
