@@ -58,7 +58,7 @@
 #include "LIS2DW12Sensor.h"
 
 // Firmware version
-#define VERSION       "v1.3"
+#define VERSION       "v1.4"
 
 // Type of MOSFET
 #define P_MOSFET                // P_MOSFET or N_MOSFET
@@ -277,6 +277,7 @@ void setup() {
   getEEPROM();
 
   // read supply voltages in mV
+  delay(100);
   Vcc = getVCC(); Vin = getVIN();
 
   // read and set current iron temperature
