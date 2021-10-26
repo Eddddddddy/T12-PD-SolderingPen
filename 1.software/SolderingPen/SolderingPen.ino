@@ -58,7 +58,7 @@
 #include "LIS2DW12Sensor.h"
 
 // Firmware version
-#define VERSION       "v1.4"
+#define VERSION       "v1.5"
 
 // Type of MOSFET
 #define P_MOSFET                // P_MOSFET or N_MOSFET
@@ -264,7 +264,6 @@ void setup() {
   Accelero.WriteReg(LIS2DW12_CTRL6, 0x04);
   Accelero.WriteReg(LIS2DW12_CTRL1, 0x17);
   Accelero.Set_FIFO_Mode(LIS2DW12_STREAM_MODE);
-  lastLISTmp = getLISTemp();
 
   // prepare and start OLED
   u8g.begin();
@@ -301,6 +300,8 @@ void setup() {
 
   // reset sleep timer
   sleepmillis = millis();
+
+  lastLISTmp = getLISTemp();
 
   // long beep for setup completion
   beep(); beep();
