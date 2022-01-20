@@ -22,7 +22,7 @@
 
 - 支架与主控需共地
 - 如果主控不是原厂的芯片，在information页面的主控温度可能会不正常。但不影响使用
-- 建议通过<https://github.com/carlosefr/atmega>页面的步骤对芯片进行烧写。
+- 建议通过<https://github.com/carlosefr/atmega>页面的步骤对芯片进行烧写。该开发板包将会释放BootLoader占用的flash空间，在下述“烧录引导程序”步骤中将熔丝位修改正确。
 - 简单来说，安装上面连接中的开发板到Arduino IDE，并在开发板中选中"ATmega328/328p" - "ATmega328p" - "16 MHz" - 编程器："Arduino as ISP"
 - 准备一个Arduino UNO，烧写Arduino示例程序中的ArduinoISP。将Arduino UNO的相应管脚与主控板上相应的飞线焊盘连接。在Arduino IDE中点击“烧录引导程序”，完成之后再点击“使用编程器上传”，即可完成烧录工作。
 
