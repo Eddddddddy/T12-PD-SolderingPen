@@ -1,5 +1,7 @@
 # T12-PD-SolderingPen
 
+[Video introduction]<https://www.bilibili.com/video/BV1734y1D7u2>
+
 使用atmega328p作为主控芯片，128x64 OLED屏幕，内置陀螺仪和蜂鸣器。能够读取控制部分电路温度和输入电压，主控电压，主控温度。具备自动启停的功能。
 
 ![image](3.images/9CA4EE73-B2C1-42C1-BB1C-226CC02446D5.png)
